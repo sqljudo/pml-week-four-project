@@ -1,0 +1,120 @@
+---
+title: "Coursera Practical Machine Learning Week 4 Project"
+author: "Russ Thomas"
+date: "June 13, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Project Introduction
+
+This project is to complete the objectives outlined in the Coursera Practical Machine Learning course final project.  This project relies heavily on the caret package as well as randomForest.  Methods used in most cases follow the examples found here:  https://topepo.github.io/caret/model-training-and-tuning.html
+
+The project details of this project are as follows:
+
+Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Source Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+What you should submit
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+## Training and validation
+
+Prerequisites:
+
+```{r load caret}
+library(caret)
+library(randomForest)
+```
+
+First we will import and clean our data sets.  There are a large number of columns with mostly NA or empty values.  Luckily the columns we care about do not have any NA values so we can just remove those other columns without complex logic.  We could use the na.omit clause in the train function but this would leave some rows within the dataset on summary records.  Also this creates much more work for the caret training functions.  It's better to ignore them completely.
+
+```{r import test and train datasets}
+train <- read.csv("c:\\users\\rthomas\\downloads\\pml-training.csv")
+test <- read.csv("c:\\users\\rthomas\\downloads\\pml-testing.csv")
+#get rid of summary rows
+train <- train[train$new_window=="no",]
+test <- test[test$new_window=="no",]
+#ensure empty columns are treated as NA
+train[train==""] <- NA
+test[test==""] <- NA
+#get rid of un-necesarry meta data columns
+train <- train[,8:160]
+test <- test[,8:160]
+#get rid of NA columns
+train <- train[,colSums(is.na(train)) == 0]
+test <- test[,colSums(is.na(test)) == 0]
+```
+
+## Find Best Predictors
+
+Based on the course material and project requirements it seems that the Random Forest method is a great approach to identifying dependable predictors in our training data for the classe column especially as it is a non binary outcome.  
+
+To build our first training set we will first establish a seed for reproducibility.  Then using our test data set we will pull out 25% for a validation set and use the rest for true training.  To do this we will implement the trainControl function to cross validate 3 times as it uses the Random Forest model to analyze our training sub set.  Further we override the default ntree setting which is 500 to 50 as this is a very compute intensive process and takes some time to complete!  Default setting caused test computer crash.
+
+```{r create train and validate subsets}
+set.seed(123)
+
+trainPart <- createDataPartition(train$classe, p=0.75, list=F)
+trainSubset <- train[trainPart, ]
+validSubset <- train[-trainPart, ] 
+
+fitControl <- trainControl(method="repeatedcv", number=3, repeats=3)
+trainModel <- train(classe ~ ., data=trainSubset, method="rf", trControl=fitControl, ntree=50)
+```
+
+We can now validate the results of the training model against the validation subset.  We do this by using our trainModel to predict the classe varaible and check for accuracy.
+
+```{r predict Classe in validation set}
+predClasse <- predict(trainModel, validSubset)
+```
+
+To visualize the effectiveness of our training model we can use the confusionMatrix.  From this we see that our model is 99% or more effective.  This is a very dependable rate, and in truth, would probably be more effective than a human trainer pointing out when a client is lifting weights with poor technique - or at least by the standards used for the original classification system.
+
+```{r confusionMatrix 1}
+predClasse <- predict(trainModel, validSubset)
+confusionMatrix(validSubset$classe, predClasse)
+```
+## More validation
+
+As a means to further validate our model, we will also try the gradient boosting machine (GBM) model in order to verify if it has simliar outcomes between our training and validation subsets before applying the model to our test set.
+
+```{r confusionMatrix 2}
+trainModelGBM <- train(classe ~ ., data=trainSubset, method="gbm", trControl=fitControl, verbose=FALSE)
+predClasseGBM <- predict(trainModelGBM, validSubset)
+confusionMatrix(validSubset$classe, predClasseGBM)
+```
+
+## Apply our model
+
+From our experiements we see that the randomForest model does appear to have more accurate results.  The balanced accuracy of the gbm model was between 96 and 98 % accurate.  With this information, we can now confidently apply the randomForest model to our actual data set and produce predictions.
+
+```{r predict Classe in final set}
+testPrediction <- predict(trainModelGBM, test)
+```
+
+## Results
+
+Attaching our predicted results back to our data we can now visualize the classification of each of the selected samples on our test data associated with each participant in the study related to their problem_id.  Estimated accuracy based on training and validation is at 99% or better.
+
+```{r display results}
+test$classe <- testPrediction
+test[ , c('problem_id', 'classe')]
+```
